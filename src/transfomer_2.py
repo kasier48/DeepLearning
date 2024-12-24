@@ -63,6 +63,7 @@ class MultiHeadAttention(nn.Module):
 
   def forward(self, x, mask):
     batch_size = x.size(0)
+    seq_len = x.size(1)
     
     # [MYCODE] split_heads를 통해 num_heads 만큼 차원으로 확장.
     # (B, S, D) -> (B, H, S, D_K)
@@ -74,9 +75,14 @@ class MultiHeadAttention(nn.Module):
     score = torch.matmul(q, k.transpose(-1, -2))
     
     # [MYCODE] d_k = d_model / num_heads 단위로 처리되므로 변경
-    score = score / sqrt(self.d_k)
+    head_unit = sqrt(self.d_k)
+    score = score / head_unit
 
+    # [MYCODE] head_unit 단위로 score를 계산하였으므로 mask도 동일하게 처리
     if mask is not None:
+      # (B, 1, 1, S)
+      mask = mask.unsqueeze(1)
+      mask = mask.expand(-1, self.num_heads, seq_len, seq_len)
       score = score + (mask * -1e9)
 
     # (B, H, S, S) * (B, H, S, D_K) = (B, H, S, D_K)
@@ -98,14 +104,17 @@ class MultiHeadAttention(nn.Module):
     return x
 
 class TransformerLayer(nn.Module):
-  def __init__(self, input_dim, d_model, dff):
+  def __init__(self, input_dim, d_model, dff, num_heads, dropout_rate=0.1):
     super().__init__()
 
     self.input_dim = input_dim
     self.d_model = d_model
     self.dff = dff
 
-    self.sa = MultiHeadAttention(input_dim, d_model)
+    # [MYOCDE] layer_norm, dropout 적용
+    self.mha = MultiHeadAttention(input_dim, d_model, num_heads)
+    self.layer_norm = nn.LayerNorm(d_model)
+    self.dropout = nn.Dropout(p=dropout_rate)
     self.ffn = nn.Sequential(
       nn.Linear(d_model, dff),
       nn.ReLU(),
@@ -113,10 +122,16 @@ class TransformerLayer(nn.Module):
     )
 
   def forward(self, x, mask):
-    x = self.sa(x, mask)
-    x = self.ffn(x)
+    # [MYOCDE] multi head attention, droput, layer_norm, residual connection 적용
+    x1 = self.mha(x, mask)
+    x1 = self.dropout(x1)
+    x1 = self.layer_norm(x1 + x)
+    
+    x2 = self.ffn(x)
+    x2 = self.dropout(x2)
+    x2 = self.layer_norm(x2 + x1)
 
-    return x
+    return x2
 
 import numpy as np
 
@@ -137,7 +152,7 @@ max_len = 400
 print(positional_encoding(max_len, 256).shape)
 
 class TextClassifier(nn.Module):
-  def __init__(self, vocab_size, d_model, n_layers, dff):
+  def __init__(self, vocab_size, d_model, n_layers, dff, num_heads, dropout_rate=0.1):
     super().__init__()
 
     self.vocab_size = vocab_size
@@ -147,7 +162,7 @@ class TextClassifier(nn.Module):
 
     self.embedding = nn.Embedding(vocab_size, d_model)
     self.pos_encoding = nn.parameter.Parameter(positional_encoding(max_len, d_model), requires_grad=False)
-    self.layers = nn.ModuleList([TransformerLayer(d_model, d_model, dff) for _ in range(n_layers)])
+    self.layers = nn.ModuleList([TransformerLayer(d_model, d_model, dff, num_heads, dropout_rate) for _ in range(n_layers)])
     
     # [MYCODE] 마지막 단어를 예측하는 것이므로 총 토큰의 길이를 주도록 설정
     self.classification = nn.Linear(d_model, vocab_size)
@@ -170,7 +185,9 @@ class TextClassifier(nn.Module):
     return x
 
 
-model = TextClassifier(len(tokenizer), 32, 2, 32)
+# [MYCODE] 5 layer, 4 heads를 적용
+token_len = len(tokenizer)
+model = TextClassifier(vocab_size=token_len, d_model=32, n_layers=5, dff=32, num_heads=4, dropout_rate=0.1)
 
 from torch.optim import Adam
 
@@ -193,6 +210,8 @@ def accuracy(model, dataloader):
     inputs, labels = inputs.to('cuda'), labels.to('cuda')
 
     preds = model(inputs)
+    
+    # [MYCODE] 다중 뷴류이므로 가장 높은 확률의 토큰을 선택
     preds = torch.argmax(preds, dim=-1)
     # preds = (preds > 0).long()[..., 0]
 
@@ -211,7 +230,11 @@ for epoch in range(n_epochs):
     inputs, labels = data
     inputs, labels = inputs.to('cuda'), labels.to('cuda').float()
 
-    preds = model(inputs)[..., 0]
+    preds = model(inputs)
+    
+    # [MYCODE] output은 마지막 단어에 예측 단에 대한 로짓 값이 나온다.
+    # CrossEntrophyLoss는 labels에 대한 long 타입을 요구하므로 변환한다.
+    labels = labels.to(torch.long)
     loss = loss_fn(preds, labels)
     loss.backward()
     optimizer.step()

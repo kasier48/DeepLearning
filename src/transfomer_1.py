@@ -167,8 +167,10 @@ def accuracy(model, dataloader):
     inputs, labels = inputs.to('cuda'), labels.to('cuda')
 
     preds = model(inputs)
-    # preds = torch.argmax(preds, dim=-1)
-    preds = (preds > 0).long()[..., 0]
+    
+    # [MYCODE] 다중 분류 문제이니 가장 높은 확률 가진 토큰을 선택
+    preds = torch.argmax(preds, dim=-1)
+    #preds = (preds > 0).long()[..., 0]
 
     cnt += labels.shape[0]
     acc += (labels == preds).sum().item()
@@ -185,7 +187,11 @@ for epoch in range(n_epochs):
     inputs, labels = data
     inputs, labels = inputs.to('cuda'), labels.to('cuda').float()
 
-    preds = model(inputs)[..., 0]
+    preds = model(inputs)
+    
+    # [MYCODE] output은 마지막 단어에 예측 단에 대한 로짓 값이 나온다.
+    # CrossEntrophyLoss는 labels에 대한 long 타입을 요구하므로 변환한다.
+    labels = labels.to(torch.long)
     loss = loss_fn(preds, labels)
     loss.backward()
     optimizer.step()
