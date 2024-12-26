@@ -138,18 +138,19 @@ class TextClassifier(nn.Module):
     for layer in self.layers:
       x = layer(x, mask)
 
-    x = x[:, -1]
+    x = x[:, 0]
     x = self.classification(x)
 
     return x
 
 
 model = TextClassifier(len(tokenizer), 32, 2, 32)
+device = torch.device('cuda')
 
 from torch.optim import Adam
 
 lr = 0.001
-model = model.to('cuda')
+model = model.to(device)
 
 # [MYCODE] 마지막 단어에 대한 예측이기 때문에 다중 분류할 수 있도록 설정
 loss_fn = nn.CrossEntropyLoss()
@@ -164,7 +165,7 @@ def accuracy(model, dataloader):
 
   for data in dataloader:
     inputs, labels = data
-    inputs, labels = inputs.to('cuda'), labels.to('cuda')
+    inputs, labels = inputs.to(device), labels.to(device)
 
     preds = model(inputs)
     
@@ -185,13 +186,11 @@ for epoch in range(n_epochs):
   for data in train_loader:
     model.zero_grad()
     inputs, labels = data
-    inputs, labels = inputs.to('cuda'), labels.to('cuda').float()
+    inputs, labels = inputs.to(device), labels.to(device)
 
     preds = model(inputs)
     
-    # [MYCODE] output은 마지막 단어에 예측 단에 대한 로짓 값이 나온다.
-    # CrossEntrophyLoss는 labels에 대한 long 타입을 요구하므로 변환한다.
-    labels = labels.to(torch.long)
+    # [MYCODE] inputs에 cls에 대한 값들이 있으므로 inputs을 그대로 전달
     loss = loss_fn(preds, labels)
     loss.backward()
     optimizer.step()
