@@ -6,6 +6,10 @@ tokenizer = torch.hub.load('huggingface/pytorch-transformers', 'tokenizer', 'dis
 
 ds = load_dataset("fancyzhx/ag_news")
 
+label_info = ds['train'].features['label']
+print(f"라벨의 종류: {label_info.names}")
+
+num_labels = len(label_info.names)
 
 def collate_fn(batch):
   max_len = 400
@@ -14,10 +18,10 @@ def collate_fn(batch):
     labels.append(row['label'])
     texts.append(row['text'])
 
-  texts = torch.LongTensor(tokenizer(texts, padding=True, truncation=False, max_length=max_len).input_ids)
+  encoding = tokenizer(texts, padding=True, truncation=False, max_length=max_len, return_tensors="pt")
   labels = torch.LongTensor(labels)
 
-  return texts, labels
+  return encoding.input_ids, labels, encoding.attention_mask
 
 
 train_loader = DataLoader(
@@ -27,8 +31,6 @@ test_loader = DataLoader(
     ds['test'], batch_size=64, shuffle=False, collate_fn=collate_fn
 )
 
-model = torch.hub.load('huggingface/pytorch-transformers', 'model', 'distilbert-base-uncased')
-
 from torch import nn
 
 class TextClassifier(nn.Module):
@@ -36,10 +38,10 @@ class TextClassifier(nn.Module):
     super().__init__()
 
     self.encoder = torch.hub.load('huggingface/pytorch-transformers', 'model', 'distilbert-base-uncased')
-    self.classifier = nn.Linear(768, 4)
+    self.classifier = nn.Linear(768, num_labels)
 
-  def forward(self, x):
-    x = self.encoder(x)['last_hidden_state']
+  def forward(self, x, attention_mask):
+    x = self.encoder(x, attention_mask)['last_hidden_state']
     x = self.classifier(x[:, 0])
 
     return x
@@ -67,10 +69,10 @@ for epoch in range(n_epochs):
   model.train()
   for data in train_loader:
     model.zero_grad()
-    inputs, labels = data
-    inputs, labels = inputs.to(device), labels.to(device)
+    inputs, labels, attention_mask = data
+    inputs, labels, attention_mask = inputs.to(device), labels.to(device), attention_mask.to(device)
 
-    preds = model(inputs)
+    preds = model(inputs, attention_mask)
     loss = loss_fn(preds, labels)
     loss.backward()
     optimizer.step()
