@@ -44,6 +44,8 @@ test_loader = DataLoader(
     test_dataset, batch_size=64, shuffle=False, collate_fn=collate_fn
 )
 
+device = torch.device('cuda')
+
 def train_model(model, optimizer, n_epochs):
   loss_list = []
   train_acc_list = []
@@ -65,8 +67,7 @@ def train_model(model, optimizer, n_epochs):
 
       total_loss += loss.item()
       
-      loss_list.append(total_loss)
-      
+    loss_list.append(total_loss)
     print(f"Epoch {epoch:3d} | Train Loss: {total_loss}")
 
     with torch.no_grad():
@@ -119,7 +120,6 @@ import numpy as np
 
 fine_tunning_model = FineTunningTextClassifier(num_labels, dropout_rate=0.1)
 
-device = torch.device('cuda')
 lr = 1e-5
 fine_tunning_model = fine_tunning_model.to(device)
 loss_fn = nn.CrossEntropyLoss()
@@ -173,6 +173,19 @@ non_trained_train_acc_list = non_trained_result[1]
 non_traiend_validation_acc_list = non_trained_result[2]
 plot_acc(non_trained_train_acc_list, non_traiend_validation_acc_list, label1="Non-Train-Acc", label2="Validation-Acc")
 
+def plot_loss(n_epochs, model1, model2, mode1_label, model2_label):
+  # 손실 그래프 그리기
+  plt.figure(figsize=(10, 6))
+  plt.plot(range(n_epochs), model1, label=mode1_label, color='blue')
+  plt.plot(range(n_epochs), model2, label=model2_label, color='red')
+  plt.xlabel('Epochs')
+  plt.ylabel('Loss')
+  plt.title('Training Loss Comparison between Model 1 and Model 2')
+  plt.legend()
+  plt.show()
+
 fine_tunning_loss_list = fine_tunning_result[0]
 non_trained_loss_list = non_trained_result[0]
-plot_acc(fine_tunning_loss_list, non_trained_loss_list, label1="Fine-Tunning-Loss", label2="Non-Train-Loss")
+plot_loss(n_epochs, fine_tunning_loss_list, non_trained_loss_list, mode1_label="Fine-Tunning-Loss", model2_label="Non-Train-Loss")
+
+d = 1
