@@ -119,13 +119,15 @@ from torch.optim import AdamW
 import numpy as np
 
 fine_tunning_model = FineTunningTextClassifier(num_labels, dropout_rate=0.1)
+for param in fine_tunning_model.encoder.parameters():
+  param.requires_grad = False
 
 lr = 1e-5
 fine_tunning_model = fine_tunning_model.to(device)
 loss_fn = nn.CrossEntropyLoss()
 optimizer = AdamW(fine_tunning_model.parameters(), lr=lr, weight_decay=0.01)
 # optimizer = Adam(fine_tunning_model.parameters(), lr=lr)
-n_epochs = 10
+n_epochs = 15
 
 fine_tunning_result = train_model(fine_tunning_model, optimizer, n_epochs)
 
@@ -151,7 +153,7 @@ non_trained_config = DistilBertConfig()
 non_traiend_text_classifier = NonTrainedTextClassifier(num_labels, non_trained_config, dropout_rate=0.1)
 non_traiend_text_classifier = non_traiend_text_classifier.to(device)
 loss_fn = nn.CrossEntropyLoss()
-optimizer = AdamW(fine_tunning_model.parameters(), lr=lr, weight_decay=0.01)
+optimizer = AdamW(non_traiend_text_classifier.parameters(), lr=lr, weight_decay=0.01)
 
 non_trained_result = train_model(non_traiend_text_classifier, optimizer, n_epochs)
 
