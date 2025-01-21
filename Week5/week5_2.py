@@ -3,7 +3,6 @@ from langchain import hub
 from langchain_chroma import Chroma
 from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
-from langchain_community.document_loaders import WebBaseLoader
 from langchain.schema import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from selenium import webdriver
@@ -14,7 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
-import os, requests, time
+import os
 
 openai_key = os.getenv("OPENAI_API_KEY")
 llm = ChatOpenAI(model="gpt-4o-mini", api_key=openai_key)
