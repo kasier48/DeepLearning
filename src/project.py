@@ -1,26 +1,56 @@
 import streamlit as st
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage
+import os, base64
 
-st.title("ChatBot")
+st.title("Fashion Recommendation Bot")
 
-if "messages" not in st.session_state:
-  st.session_state.messages = []
-    
-    
-for message in st.session_state.messages:
-  with st.chat_message(message["role"]):
-    st.markdown(message["content"])
-    
-if prompt := st.chat_input("What is up?"):  # User의 input을 기다립니다. Placeholder로 "What is up?"라는 문구를 사용합니다.
-  with st.chat_message("user"):
-    st.markdown(prompt)  # User의 메시지를 기록합니다.
-  st.session_state.messages.append({"role": "user", "content": prompt})  # User의 메시지를 session_state에 저장합니다.
+openai_key = os.getenv("OPENAI_API_KEY")
+model = ChatOpenAI(model="gpt-4o", api_key=openai_key)
 
-  response = f"Echo: {prompt}"  # 우리가 내놓을 답변으로 user가 보낸 메시지를 사용합니다.
-
-  # User의 메시지를 처리하는 방식을 똑같이 사용합니다(UI에 기록 및 state에 저장)
+if image := st.file_uploader("본인의 전신이 보이는 사진을 올려주세요!", type=['png', 'jpg', 'jpeg']):
+  st.image(image)
+  image = base64.b64encode(image.read()).decode("utf-8")
   with st.chat_message("assistant"):
+    message = HumanMessage(
+      content=[
+        {"type": "text", "text": "사람의 전신이 찍혀있는 사진이 한 장 주어집니다. 이 때, 사진 속 사람과 어울리는 옷 및 패션 스타일을 추천해주세요."},
+        {
+          "type": "image_url",
+          "image_url": {"url": f"data:image/jpeg;base64,{image}"},
+        },
+      ],
+    )
+    result = model.invoke([message])
+    response = result.content
     st.markdown(response)
-    st.session_state.messages.append({
-        "role": "assistant", 
-        "content": response
-    })
+
+# if "messages" not in st.session_state:
+#   st.session_state.messages = []
+    
+# for message in st.session_state.messages:
+#   with st.chat_message(message["role"]):
+#     st.markdown(message["content"])
+    
+# if prompt := st.chat_input("What is up?"):
+#     with st.chat_message("user"):
+#         st.markdown(prompt)
+#     st.session_state.messages.append({"role": "user", "content": prompt})
+
+#     with st.chat_message("assistant"):
+#         messages = []
+#         for m in st.session_state.messages:
+#             if m["role"] == "user":
+#                 messages.append(HumanMessage(content=m["content"]))
+#             else:
+#                 messages.append(AIMessage(content=m["content"]))
+
+#         result = model.invoke(messages)
+#         response = result.content
+        
+#         st.markdown(response)
+
+#         st.session_state.messages.append({
+#             "role": "assistant",
+#             "content": response
+#         })
