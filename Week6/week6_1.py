@@ -3,7 +3,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
 import os, base64
 
-st.title("Fashion Recommendation Bot")
+st.title("사진과 연관된 대화")
 
 openai_key = os.getenv("OPENAI_API_KEY")
 model = ChatOpenAI(model="gpt-4o", api_key=openai_key)
