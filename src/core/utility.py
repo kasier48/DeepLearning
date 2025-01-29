@@ -2,28 +2,62 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Chroma
 from langchain_core.prompts import PromptTemplate
-import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from typing import List, Dict
+import torch, os
 import re, requests
+import time
 
-def save_to_vectordb(codes):
+def save_to_vectordb(codes: List[Dict[str, str]]):
+  """
+  코드 조각을 벡터 DB에 저장하되, 동일한 파일(source)에서 코사인 유사도가 1.0인 문서는 제외하고 저장.
+  """
   text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
 
-  documents = []
-  for code in codes:
-    chunks = text_splitter.split_text(code["text"])
-    for idx, chunk in enumerate(chunks):
-      doc_metadata = {"source": code["name"], "chunk_id": idx}
-      documents.append((chunk, doc_metadata))
-
+  # Chroma 벡터 스토어 로드
   embedding = OpenAIEmbeddings()
-  vectorstore = Chroma.from_texts(
-    texts=[doc for (doc, meta) in documents],
-    embedding=embedding,
-    metadatas=[meta for (doc, meta) in documents],
-    collection_name='old_codes',
-    persist_directory="chroma_db"
+  vectorstore = Chroma(
+    collection_name="code_collection",
+    persist_directory="chroma_db",
+    embedding_function=embedding
   )
+
+  new_documents = []
+  
+  for code in codes:
+    source_name = code["name"]
+    chunks = text_splitter.split_text(code["text"])
+
+    for idx, chunk in enumerate(chunks):
+      # 현재 청크를 벡터DB에서 검색하여 동일한 source 내 유사도 1.0인 문서가 있는지 확인
+      similar_docs = vectorstore.similarity_search_with_score(chunk, k=5)  # 유사한 문서 최대 5개 검색
+
+      has_duplicate = any(1 - score == 1.0 for _, score in similar_docs)  # 유사도 1.0 여부 확인
+      if has_duplicate:
+        print(f"⚠️ 동일한 코드 청크가 이미 존재하여 저장 생략: {source_name} (chunk {idx})")
+        continue  # 중복이면 저장하지 않음
+      
+      # 고유한 doc_id 생성
+      doc_id = f"{source_name}_chunk_{idx}_{int(time.time() * 1000)}"
+      doc_metadata = {
+        "source": source_name,
+        "chunk_id": idx,
+        "doc_id": doc_id,
+        "timestamp": int(time.time())
+      }
+      
+      new_documents.append((chunk, doc_metadata))
+
+  # 새로운 문서만 추가로 저장
+  if new_documents:
+    vectorstore.add_texts(
+      texts=[doc for (doc, meta) in new_documents],
+      metadatas=[meta for (doc, meta) in new_documents]
+    )
+    vectorstore.persist()
+    print(f"✅ {len(new_documents)}개의 코드 청크가 벡터DB에 저장되었습니다.")
+  else:
+    print("⚠️ 새로운 코드 청크가 없어 저장을 건너뜁니다.")
 
 def get_review_prompt(history, prev_codes, codes):
   prompt_template = """\
@@ -78,60 +112,61 @@ def parse_codes(prompt):
   
   return codes
 
-def search_prev_codes_from_vectordb(codes):
+def search_prev_codes_from_vectordb(codes: List[Dict[str, str]]) -> List[str]:
+  """
+  현재 코드 리스트와 유사한 이전 코드를 검색하여 재구성.
+  1) 현재 코드와 코사인 유사도가 1보다 낮은 문서들을 필터링
+  2) 가장 최신(timestamp가 높은) 코드를 선택
+  3) 해당 코드의 source 이름을 이용하여 벡터DB에서 관련 코드 청크를 검색
+  4) chunk_id 순서대로 정렬하여 최종적으로 하나의 코드로 재조합
+
+  :param codes: {'name': str, 'text': str} 형태의 코드 리스트
+  :return: 이전 코드가 재구성된 리스트
+  """
   prev_codes = []
   
   embedding = OpenAIEmbeddings()
   vectorstore = Chroma(
-      collection_name="old_codes",
-      persist_directory="chroma_db",
-      embedding_function=embedding
+    collection_name="code_collection",
+    persist_directory="chroma_db",
+    embedding_function=embedding
   )
-  
+
   for code in codes:
-    text = code['text']
-    similar_docs = vectorstore.similarity_search(text, k=1)
-    
-    for doc in similar_docs:
-      prev_codes.append(doc.page_content)
+    source_name = code["name"]
+    code_text = code["text"]
+
+    # 현재 코드의 임베딩 생성
+    # query_embedding = embedding.embed_query(code_text)  # 🔥 `embed_query()` 사용
+
+    # 벡터DB에서 유사한 이전 코드 검색 (유사도 높은 순으로 최대 5개 검색)
+    similar_docs = vectorstore.similarity_search_with_score(code_text, k=5)
+
+    # 코사인 유사도 1.0(완전 동일한 코드)보다 낮은 것만 필터링
+    filtered_candidates = [
+      (doc, score) for doc, score in similar_docs if 1 - score < 1.0
+    ]
+
+    if not filtered_candidates:
+      continue
+
+    # timestamp가 가장 높은 후보 선택
+    latest_candidate = max(filtered_candidates, key=lambda x: x[0].metadata["timestamp"])
+    latest_source_name = latest_candidate[0].metadata["source"]
+
+    # 동일한 source 이름을 가진 모든 청크 검색
+    related_docs = vectorstore.get(
+      where={"source": latest_source_name},
+      include=["documents", "metadatas"]
+    )
+
+    # 청크를 chunk_id 순으로 정렬
+    chunks_with_metadata = list(zip(related_docs["documents"], related_docs["metadatas"]))
+    sorted_chunks = sorted(chunks_with_metadata, key=lambda x: x[1]["chunk_id"])
+
+    # 청크 내용을 순서대로 결합
+    reconstructed_code = "\n".join([chunk for (chunk, meta) in sorted_chunks])
+
+    prev_codes.append(reconstructed_code)
 
   return prev_codes
-
-
-def summarize_code(code_snippet: str) -> str:
-    """
-    Salesforce/codet5-base-multi-sum 모델을 이용해
-    입력된 code_snippet을 요약하는 함수.
-    """
-    model_name = "Salesforce/codet5-base-multi-sum"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-
-    # CodeT5 시리즈는 특정 태스크를 지시하는 prefix를 사용하기도 함
-    # 요약 태스크를 명시하기 위해 'summarize: ' prefix를 붙임
-    prefix = "summarize: "
-    input_text = prefix + code_snippet
-
-    # 토큰화
-    inputs = tokenizer.encode_plus(
-        input_text,
-        return_tensors="pt",
-        max_length=512,
-        truncation=True
-    )
-    input_ids = inputs["input_ids"].to(device)
-
-    # 요약 생성 (Beam Search 예시)
-    summary_ids = model.generate(
-        input_ids,
-        max_length=512,
-        num_beams=4,
-        early_stopping=True
-    )
-
-    # 결과 디코딩
-    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-    return summary

@@ -1,6 +1,5 @@
 import streamlit as st
 from langchain_openai import ChatOpenAI
-from core.codebert import CodeSummarizer
 import core.utility
 import os
 
@@ -25,6 +24,7 @@ if prompt := st.chat_input("질문을 입력하세요", key="user_input"):
     elif role == 'assistant':
       messages.append(f"어시스턴트: {m['content']}")
   
+  prev_codes = ''
   review_prompt = ''
   codes = core.utility.parse_codes(prompt)
   if codes:
@@ -33,10 +33,6 @@ if prompt := st.chat_input("질문을 입력하세요", key="user_input"):
     review_prompt = core.utility.get_review_prompt(history=history, prev_codes=prev_codes, codes=codes)
     # code가 있다면 코드 리뷰로 판단하여 review prompt로 질의하도록 한다.
 
-    # code_summarizer = CodeSummarizer()
-    # code_texts = '\n\n'.join([code['text'] for code in codes])
-    # code_summarization = code_summarizer.chunked_code_summarization(code_snippet=code_texts, overlap=30)
-      
   with st.chat_message('user'):
     st.markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
