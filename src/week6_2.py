@@ -24,7 +24,6 @@ if prompt := st.chat_input("질문을 입력하세요", key="user_input"):
     elif role == 'assistant':
       messages.append(f"어시스턴트: {m['content']}")
   
-  prev_codes = ''
   review_prompt = ''
   codes = core.utility.parse_codes(prompt)
   if codes:

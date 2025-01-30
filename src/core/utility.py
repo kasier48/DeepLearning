@@ -2,9 +2,7 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Chroma
 from langchain_core.prompts import PromptTemplate
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from typing import List, Dict
-import torch, os
 import re, requests
 import time
 
@@ -133,11 +131,8 @@ def search_prev_codes_from_vectordb(codes: List[Dict[str, str]]) -> List[str]:
   )
 
   for code in codes:
-    source_name = code["name"]
+    # source_name = code["name"]
     code_text = code["text"]
-
-    # 현재 코드의 임베딩 생성
-    # query_embedding = embedding.embed_query(code_text)  # 🔥 `embed_query()` 사용
 
     # 벡터DB에서 유사한 이전 코드 검색 (유사도 높은 순으로 최대 5개 검색)
     similar_docs = vectorstore.similarity_search_with_score(code_text, k=5)
